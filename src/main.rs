@@ -68,7 +68,6 @@ struct Field {
 }
 
 impl Field {
-    
     fn with_cells(cells: Vec<Vec<Cell>>) -> Self {
         let mut numbers = vec![];
         for (x, c_col) in cells.iter().enumerate() {
@@ -115,22 +114,44 @@ impl Field {
     }
 
     fn open(&mut self, x: u16, y: u16) -> Result<(), MinesError> {
-        let _ = get_2d(&mut self.cells, x, y)?;
+        let _ = get_2d(&self.cells, x, y)?;
         let cell: &mut Cell = self.cells.get_mut(x as usize).unwrap().get_mut(y as usize).unwrap();
         if cell.opened {
             return Ok(());
         }
         cell.open()?;
         if self.numbers.get(x as usize).unwrap().get(y as usize).unwrap().eq(&0) {
-            let mx = if x > 0 { x - 1 } else { 0 };
-            let my = if y > 0 { y - 1 } else { 0 };
-            for nx in mx..x+2 {
-                for ny in my..y+2 {
+            for nx in min_coord(x)..x + 2 {
+                for ny in min_coord(y)..y + 2 {
                     let _ = self.open(nx, ny);
                 }
             }
         }
         Ok(())
+    }
+
+    fn chord(&mut self, x: u16, y: u16) -> Result<(), MinesError>{
+        {
+            let cell  = get_2d(&self.cells, x, y)?;
+            if !cell.opened {
+                self.open(x, y)?;
+            }
+        }
+        let number = get_2d(&self.numbers, x, y)?;
+        let mut counter = 0;
+        do_with_neighbours(&self.cells, x, y, |c| {
+            if c.flagged {
+                counter += 1;
+            }
+            Ok(())
+        })?;
+        if number.ne(&counter) {
+            return Ok(())
+        }
+        do_with_neighbours_mut(&mut self.cells, x, y, |x, y, c| {
+            c.open()?;
+            Ok(())
+        })
     }
 
     fn is_won(&self) -> bool {
@@ -177,36 +198,70 @@ fn generate_cells(rng: &mut ThreadRng, width: u16, height: u16, mines: u16) -> R
     Ok(cells)
 }
 
+fn min_coord(c: u16) -> u16 {
+    if c > 0 {
+        c - 1
+    } else {
+        c
+    }
+}
+
 fn count_neighbours(cells: &Vec<Vec<Cell>>, x: u16, y: u16) -> Result<u8, MinesError> {
     let mut counter = 0;
     if cells.is_empty() {
         return Err(MinesError::EmptyField);
     }
-    let min_x = if x > 0 { x - 1 } else { x };
-    let min_y = if y > 0 { y - 1 } else { y };
     if x as usize >= cells.len() {
         return Err(MinesError::OutOfBounds(x, y));
     }
-    for curr_x in min_x..x+2 {
-        if y as usize >= cells.get(x as usize).unwrap().len() {
-            return Err(MinesError::OutOfBounds(x, y));
+    do_with_neighbours(cells, x, y, |c| {
+        if c.value.eq(&CellValue::Mine) {
+            counter += 1;
         }
-        for curr_y in min_y..y+2 {
-            if !(curr_x == x && curr_y == y) {
-                if let Ok(cell) =  get_2d(&cells, curr_x, curr_y) {
-                    if cell.value.eq(&CellValue::Mine) {
-                        counter += 1;
-                    }
-                }
+        Ok(())
+    })?;
+    Ok(counter)
+}
+
+fn do_with_neighbours<F>(cells: &Vec<Vec<Cell>>, x: u16, y: u16, mut cb: F) -> Result<(), MinesError>
+    where F: FnMut(&Cell) -> Result<(), MinesError> {
+    for curr_x in min_coord(x)..x+2 {
+        for curr_y in min_coord(y)..y+2 {
+            if curr_x == x && curr_y == y {
+                continue;
+            }
+            if let Ok(cell) = get_2d(cells, curr_x, curr_y) {
+                cb(cell)?;
             }
         }
     }
-    Ok(counter)
+    Ok(())
+}
+
+fn do_with_neighbours_mut<F>(cells: &mut Vec<Vec<Cell>>, x: u16, y: u16, mut cb: F) -> Result<(), MinesError>
+    where F: FnMut(u16, u16, &mut Cell) -> Result<(), MinesError> {
+    for curr_x in min_coord(x)..x+2 {
+        for curr_y in min_coord(y)..y+2 {
+            if let Ok(cell) = get_2d_mut(cells, curr_x, curr_y) {
+                cb(curr_x, curr_y, cell)?;
+            }
+        }
+    }
+    Ok(())
 }
 
 fn get_2d<T>(vec: &Vec<Vec<T>>, x: u16, y: u16) -> Result<&T, MinesError> {
     if let Some(col) = vec.get(x as usize) {
         if let Some(item) = col.get(y as usize) {
+            return Ok(item);
+        }
+    }
+    Err(MinesError::OutOfBounds(x, y))
+}
+
+fn get_2d_mut<T>(vec: &mut Vec<Vec<T>>, x: u16, y: u16) -> Result<&mut T, MinesError> {
+    if let Some(col) = vec.get_mut(x as usize) {
+        if let Some(item) = col.get_mut(y as usize) {
             return Ok(item);
         }
     }
@@ -245,13 +300,17 @@ fn main() {
     field.print();
     loop {
         let mut flag = false;
+        let mut chord = false;
         let selection;
         loop {
             stdin.read_line(&mut in_buffer).unwrap();
-            let mut input: Vec<String> = in_buffer.split(" ").filter(|s| s.len() > 0).map(|s| s.into()).collect();
+            let mut input: Vec<String> = in_buffer.trim().split(" ").filter(|s| s.len() > 0).map(|s| s.into()).collect();
             if let Some(first) = input.get(0) {
                 if first.trim().eq("f") {
                     flag = true;
+                    input.remove(0);
+                } else if first.trim().eq("c") {
+                    chord = true;
                     input.remove(0);
                 }
             }
@@ -260,7 +319,7 @@ fn main() {
                 let input: Vec<u16> = input.into_iter().map(|r| r.unwrap()).collect();
                 if input.len() == 2 {
                     let x = input.get(0).unwrap().clone();
-                    let y = input.get(1).unwrap().clone();                    
+                    let y = input.get(1).unwrap().clone();
                     selection = (
                         if x > 0 { x - 1 } else { x },
                         if y > 0 { y - 1 } else { y },
@@ -278,13 +337,21 @@ fn main() {
         in_buffer.clear();
         if flag {
             let _ = field.flag(selection.1, selection.0);
+        } else if chord {
+            match field.chord(selection.1, selection.0) {
+                Err(MinesError::MineOpened) => {
+                    field.print();
+                    panic!("You lost!");
+                },
+                _ => {},
+            }
         } else {
             match field.open(selection.1, selection.0) {
                 Err(MinesError::MineOpened) => {
                     field.print();
                     panic!("You lost!");
-                },
-                _ => {}
+                }
+                _ => {},
             }
         }
         println!();
@@ -299,6 +366,8 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+    use crate::{CellValue, Cell};
+
     mod cell {
         use crate::{Cell, MinesError};
 
@@ -313,6 +382,24 @@ mod tests {
         }
 
         #[test]
+        fn toggle_flag() {
+            let mut cell = Cell::mine();
+            assert!(!cell.flagged);
+            cell.toggle_flag();
+            assert!(cell.flagged);
+            cell.toggle_flag();
+            assert!(!cell.flagged);
+        }
+
+        #[test]
+        fn toggle_opened() {
+            let mut cell = Cell::water();
+            let _ = cell.open();
+            cell.toggle_flag();
+            assert!(!cell.flagged);
+        }
+
+        #[test]
         fn open_flagged() {
             let mut cell = Cell::water();
             cell.flagged = true;
@@ -322,17 +409,16 @@ mod tests {
     }
 
     mod field {
-        use crate::{Cell, CellValue::*, Field};
+        use crate::{CellValue::*, Field};
+        use crate::tests::cells_from_types;
 
         #[test]
         fn with_cells() {
-            let cells = vec![
+            let cells = cells_from_types(vec![
                 vec![Water, Water, Mine],
                 vec![Mine, Water, Water],
                 vec![Mine, Water, Mine],
-            ].into_iter().map(|vec| {
-                vec.into_iter().map(|v| Cell {value: v, opened: false, flagged: false }).collect()
-            }).collect();
+            ]);
             let field = Field::with_cells(cells);
             let numbers = vec![
                 vec![1, 2, 0],
@@ -341,5 +427,30 @@ mod tests {
             ];
             assert_eq!(numbers, field.numbers);
         }
+
+        #[test]
+        fn flag_cell() {
+            let cells = cells_from_types(vec![
+                vec![Water, Mine],
+                vec![Water, Water],
+            ]);
+            let mut field = Field::with_cells(cells);
+            field.flag(1, 0).unwrap();
+            assert!(field.cells.get(1).unwrap().get(0).unwrap().flagged);
+            field.flag(1, 0).unwrap();
+            assert!(!field.cells.get(1).unwrap().get(0).unwrap().flagged);
+        }
+    }
+
+    fn cells_from_types(types: Vec<Vec<CellValue>>) -> Vec<Vec<Cell>> {
+        types.into_iter().map(|c|
+            c.into_iter().map(|v|
+                Cell {
+                    value: v,
+                    opened: false,
+                    flagged: false,
+                }
+            ).collect()
+        ).collect()
     }
 }
