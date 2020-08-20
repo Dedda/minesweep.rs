@@ -259,7 +259,12 @@ fn main() {
                 let input: Vec<Result<u16, _>> = input.iter().map(|s| s.trim()).map(|s| s.parse()).filter(|v| v.is_ok()).collect();
                 let input: Vec<u16> = input.into_iter().map(|r| r.unwrap()).collect();
                 if input.len() == 2 {
-                    selection = (input.get(0).unwrap().clone(), input.get(1).unwrap().clone());
+                    let x = input.get(0).unwrap().clone();
+                    let y = input.get(1).unwrap().clone();                    
+                    selection = (
+                        if x > 0 { x - 1 } else { x },
+                        if y > 0 { y - 1 } else { y },
+                    );
                     break;
                 } else {
                     println!("Wrong coords count ({})", input.len());
