@@ -134,12 +134,12 @@ impl Field {
         {
             let cell  = get_2d(&self.cells, x, y)?;
             if !cell.opened {
-                self.open(x, y)?;
+                return Ok(());
             }
         }
         let number = get_2d(&self.numbers, x, y)?;
         let mut counter = 0;
-        do_with_neighbours(&self.cells, x, y, |c| {
+        do_with_neighbours(&self.cells, x, y, |_, _, c| {
             if c.flagged {
                 counter += 1;
             }
@@ -148,10 +148,20 @@ impl Field {
         if number.ne(&counter) {
             return Ok(())
         }
-        do_with_neighbours_mut(&mut self.cells, x, y, |x, y, c| {
-            c.open()?;
-            Ok(())
-        })
+        self.open(x, y)?;
+        for x in min_coord(x)..x+2 {
+            for y in min_coord(y)..y+2 {
+                {
+                    let cell = get_2d(&self.cells, x, y)?;
+                    if cell.opened || cell.flagged {
+                        continue;
+                    }
+
+                }
+                self.open(x, y)?;
+            }
+        }
+        Ok(())
     }
 
     fn is_won(&self) -> bool {
@@ -214,7 +224,7 @@ fn count_neighbours(cells: &Vec<Vec<Cell>>, x: u16, y: u16) -> Result<u8, MinesE
     if x as usize >= cells.len() {
         return Err(MinesError::OutOfBounds(x, y));
     }
-    do_with_neighbours(cells, x, y, |c| {
+    do_with_neighbours(cells, x, y, |_, _, c| {
         if c.value.eq(&CellValue::Mine) {
             counter += 1;
         }
@@ -224,14 +234,14 @@ fn count_neighbours(cells: &Vec<Vec<Cell>>, x: u16, y: u16) -> Result<u8, MinesE
 }
 
 fn do_with_neighbours<F>(cells: &Vec<Vec<Cell>>, x: u16, y: u16, mut cb: F) -> Result<(), MinesError>
-    where F: FnMut(&Cell) -> Result<(), MinesError> {
+    where F: FnMut(u16, u16, &Cell) -> Result<(), MinesError> {
     for curr_x in min_coord(x)..x+2 {
         for curr_y in min_coord(y)..y+2 {
             if curr_x == x && curr_y == y {
                 continue;
             }
             if let Ok(cell) = get_2d(cells, curr_x, curr_y) {
-                cb(cell)?;
+                cb(curr_x, curr_y, cell)?;
             }
         }
     }
