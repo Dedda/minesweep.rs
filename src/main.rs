@@ -248,30 +248,9 @@ fn do_with_neighbours<F>(cells: &Vec<Vec<Cell>>, x: u16, y: u16, mut cb: F) -> R
     Ok(())
 }
 
-fn do_with_neighbours_mut<F>(cells: &mut Vec<Vec<Cell>>, x: u16, y: u16, mut cb: F) -> Result<(), MinesError>
-    where F: FnMut(u16, u16, &mut Cell) -> Result<(), MinesError> {
-    for curr_x in min_coord(x)..x+2 {
-        for curr_y in min_coord(y)..y+2 {
-            if let Ok(cell) = get_2d_mut(cells, curr_x, curr_y) {
-                cb(curr_x, curr_y, cell)?;
-            }
-        }
-    }
-    Ok(())
-}
-
 fn get_2d<T>(vec: &Vec<Vec<T>>, x: u16, y: u16) -> Result<&T, MinesError> {
     if let Some(col) = vec.get(x as usize) {
         if let Some(item) = col.get(y as usize) {
-            return Ok(item);
-        }
-    }
-    Err(MinesError::OutOfBounds(x, y))
-}
-
-fn get_2d_mut<T>(vec: &mut Vec<Vec<T>>, x: u16, y: u16) -> Result<&mut T, MinesError> {
-    if let Some(col) = vec.get_mut(x as usize) {
-        if let Some(item) = col.get_mut(y as usize) {
             return Ok(item);
         }
     }
@@ -305,6 +284,7 @@ fn main() {
         Err(MinesError::TooManyMines) => panic!("Too many mines"),
         _ => panic!("Error?!"),
     };
+    let mut turns = 0;
     let mut in_buffer = String::new();
     let stdin = io::stdin();
     field.print();
@@ -313,6 +293,7 @@ fn main() {
         let mut chord = false;
         let selection;
         loop {
+            turns += 1;
             stdin.read_line(&mut in_buffer).unwrap();
             let mut input: Vec<String> = in_buffer.trim().split(" ").filter(|s| s.len() > 0).map(|s| s.into()).collect();
             if let Some(first) = input.get(0) {
@@ -369,6 +350,7 @@ fn main() {
         println!();
         if field.is_won() {
             println!("{}", "You won!".green().bold());
+            println!("With {} turns.", turns);
             break;
         }
     }
